@@ -56,7 +56,13 @@ io.on('connection', (socket) => {
     
     // Assign color if not already in room
     if (!room.players.has(socket.id)) {
-      const color = room.players.size === 0 ? 'w' : 'b';
+      let color;
+      if (room.players.size === 0) {
+        color = Math.random() < 0.5 ? 'w' : 'b';
+      } else {
+        const otherPlayer = Array.from(room.players.values())[0];
+        color = otherPlayer.color === 'w' ? 'b' : 'w';
+      }
       room.players.set(socket.id, { color, id: socket.id, name: playerName || 'Anonymous' });
       console.log(`User ${socket.id} (${playerName}) assigned ${color} in room ${roomId}`);
     }

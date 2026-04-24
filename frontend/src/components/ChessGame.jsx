@@ -313,6 +313,7 @@ const ChessGame = ({ roomId, playerName, onLeave }) => {
             selectedSquare={selectedSquare}
             validMoves={validMoves}
             lastMove={lastMove}
+            playerColor={playerColor}
           />
         </div>
 

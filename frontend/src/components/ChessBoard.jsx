@@ -6,7 +6,7 @@ const rows = ['8', '7', '6', '5', '4', '3', '2', '1'];
 const cols = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 const getSquareName = (rowIdx, colIdx) => `${cols[colIdx]}${rows[rowIdx]}`;
 
-const Square = memo(({ squareName, rowIdx, colIdx, cell, isSelected, isValidMove, isLastMove, isKingInCheck, onSquareClick }) => {
+const Square = memo(({ squareName, rowIdx, colIdx, cell, isSelected, isValidMove, isLastMove, isKingInCheck, onSquareClick, isFlipped }) => {
   const isDark = (rowIdx + colIdx) % 2 === 1;
 
   // Premium Wood Colors: Maple (Light) and Walnut (Dark)
@@ -17,6 +17,9 @@ const Square = memo(({ squareName, rowIdx, colIdx, cell, isSelected, isValidMove
   if (isSelected) highlightClass = 'after:bg-lime-400/50';
   else if (isKingInCheck) highlightClass = 'after:bg-red-500/60';
   else if (isLastMove) highlightClass = isDark ? 'after:bg-white/20' : 'after:bg-black/15';
+
+  const showRank = isFlipped ? colIdx === 7 : colIdx === 0;
+  const showFile = isFlipped ? rowIdx === 0 : rowIdx === 7;
 
   return (
     <div
@@ -31,13 +34,13 @@ const Square = memo(({ squareName, rowIdx, colIdx, cell, isSelected, isValidMove
       }}
     >
       {/* Minimal Coordinates - Placed above the highlight overlay */}
-      {colIdx === 0 && (
+      {showRank && (
         <span className={`absolute top-0.5 left-1 text-[8px] sm:text-[10px] font-black uppercase select-none z-10 ${isDark ? 'text-white/60' : 'text-black/40'
           }`}>
           {rows[rowIdx]}
         </span>
       )}
-      {rowIdx === 7 && (
+      {showFile && (
         <span className={`absolute bottom-0.5 right-1 text-[8px] sm:text-[10px] font-black uppercase select-none z-10 ${isDark ? 'text-white/60' : 'text-black/40'
           }`}>
           {cols[colIdx]}
@@ -67,7 +70,7 @@ const Square = memo(({ squareName, rowIdx, colIdx, cell, isSelected, isValidMove
   );
 });
 
-const ChessBoard = memo(({ game, selectedSquare, onSquareClick, validMoves, lastMove }) => {
+const ChessBoard = memo(({ game, selectedSquare, onSquareClick, validMoves, lastMove, playerColor }) => {
   const board = game.board();
 
   // Find king position if in check
@@ -84,15 +87,20 @@ const ChessBoard = memo(({ game, selectedSquare, onSquareClick, validMoves, last
     }
   }
 
+  const isFlipped = playerColor === 'b';
+  const rowIndices = isFlipped ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
+  const colIndices = isFlipped ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
+
   return (
     <div className="w-full h-full grid grid-cols-8 grid-rows-8 border-[8px] sm:border-[12px] border-[#2A1810] shadow-2xl relative bg-[#2A1810]">
 
       {/* Optional: A subtle inner shadow to make the board feel recessed into the frame */}
       <div className="absolute inset-0 pointer-events-none shadow-[inset_0_0_20px_rgba(0,0,0,0.5)] z-30" />
 
-      {board.map((row, rowIdx) =>
-        row.map((cell, colIdx) => {
-          const squareName = getSquareName(rowIdx, colIdx);
+      {rowIndices.map((r) =>
+        colIndices.map((c) => {
+          const cell = board[r][c];
+          const squareName = getSquareName(r, c);
           const isSelected = selectedSquare === squareName;
           const isValidMove = validMoves.some(m => m.to === squareName);
           const isLastMove = lastMove && (lastMove.from === squareName || lastMove.to === squareName);
@@ -102,14 +110,15 @@ const ChessBoard = memo(({ game, selectedSquare, onSquareClick, validMoves, last
             <Square
               key={squareName}
               squareName={squareName}
-              rowIdx={rowIdx}
-              colIdx={colIdx}
+              rowIdx={r}
+              colIdx={c}
               cell={cell}
               isSelected={isSelected}
               isValidMove={isValidMove}
               isLastMove={isLastMove}
               isKingInCheck={isKingInCheck}
               onSquareClick={onSquareClick}
+              isFlipped={isFlipped}
             />
           );
         })
