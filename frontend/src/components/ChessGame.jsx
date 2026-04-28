@@ -3,68 +3,90 @@ import { Chess } from 'chess.js';
 import { socket } from '../socket';
 import ChessBoard from './ChessBoard';
 import Piece from './Piece';
-import { Trophy, RotateCcw, MessageSquare, Send, Crown, ArrowLeft, ChevronRight, User, Skull, Link, Check, Eye } from 'lucide-react';
+import { Trophy, RotateCcw, MessageSquare, Send, Crown, ArrowLeft, ChevronRight, User, Skull, Link, Check, Eye, Cpu } from 'lucide-react';
+import { getBestMoveAsync } from '../utils/ai';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const PlayerCard = memo(({ color, isOpponent, playerColor, game, capturedPieces, opponents, name }) => {
+const PlayerCard = memo(({ color, isOpponent, playerColor, game, captured, score, opponents, name, time }) => {
   const isCurrentTurn = game.turn() === color;
   const isPlayer = playerColor === color;
-  const captured = capturedPieces[color];
+
+  const formatTime = (ms) => {
+    const seconds = Math.floor(ms / 1000);
+    const milliseconds = Math.floor((ms % 1000) / 10);
+    return `${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(2, '0')}s`;
+  };
 
   return (
-    <div className={`relative flex items-center gap-4 p-4 border-2 transition-all duration-300 ${isCurrentTurn ? 'border-lime-400 bg-lime-400/5' : 'border-white/10 opacity-50 grayscale'
+    <div className={`relative flex items-center gap-4 p-4 border-2 transition-all duration-300 ${isCurrentTurn ? 'border-lime-400 bg-lime-400/5' : 'border-white/10 opacity-60'
       }`}>
       {/* Brutalist Avatar Square */}
       <div className={`relative w-14 h-14 flex items-center justify-center transition-colors duration-300 ${isCurrentTurn ? 'bg-lime-400 text-black' : 'bg-transparent border-2 border-white/20 text-white'
         }`}>
         <User size={28} strokeWidth={2} />
         {isCurrentTurn && (
-          <div className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-lime-400 border-2 border-[#050505]" />
+          <motion.div 
+            layoutId="turn-indicator"
+            className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-lime-400 border-2 border-[#050505]" 
+          />
         )}
       </div>
 
-      <div className="flex-1 space-y-1.5">
-        <div className="flex items-center gap-3">
-          <span className="font-black tracking-tighter text-lg uppercase text-white">
-            {name}
-          </span>
-          <span className={`text-[10px] font-black px-2 py-1 uppercase tracking-widest ${color === 'w' ? 'bg-white text-black' : 'bg-white/10 text-white'
-            }`}>
-            {color === 'w' ? 'White' : 'Black'}
-          </span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="font-black tracking-tighter text-lg uppercase text-white truncate">
+              {name}
+            </span>
+            <span className={`text-[9px] font-black px-1.5 py-0.5 uppercase tracking-widest ${color === 'w' ? 'bg-white text-black' : 'bg-white/10 text-white border border-white/20'
+              }`}>
+              {color === 'w' ? 'White' : 'Black'}
+            </span>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            {score > 0 && (
+              <div className="flex items-center gap-1 bg-lime-400/10 px-2 py-0.5 border border-lime-400/20">
+                <span className="text-lime-400 font-black text-[10px] tracking-widest">+ {score}</span>
+              </div>
+            )}
+            <div className={`px-2 py-0.5 border-2 font-mono font-black text-xs tabular-nums ${isCurrentTurn ? 'bg-white text-black border-white' : 'border-white/10 text-white/40'}`}>
+              {formatTime(time)}
+            </div>
+          </div>
         </div>
 
-        {/* Captured Pieces Minimal Grid */}
-        <div className="flex flex-wrap gap-1 min-h-[1.5rem]">
+        {/* Captured Pieces Minimal Row */}
+        <div className="flex flex-wrap items-center gap-1 h-6">
           {captured.map((type, i) => {
-            const pieceColor = color === 'w' ? 'b' : 'w';
+            const opponentColor = color === 'w' ? 'b' : 'w';
             return (
-              <div key={i} className="w-4 h-4 opacity-60">
+              <div key={i} className="w-5 h-5 flex items-center justify-center grayscale brightness-200 opacity-40 hover:opacity-100 transition-opacity">
                 <Piece 
                   type={type} 
-                  color={pieceColor} 
-                  style={pieceColor === 'b' ? { filter: 'drop-shadow(0 0 3px rgba(255,255,255,1))' } : {}}
+                  color={opponentColor} 
+                  style={{ width: '100%', height: '100%' }}
                 />
               </div>
             );
           })}
-          {captured.length > 0 && (
-            <span className="text-[10px] font-black text-lime-400 ml-2 self-center">+{captured.length}</span>
+          {captured.length === 0 && (
+            <div className="w-full h-0.5 bg-white/5 rounded-full" />
           )}
         </div>
       </div>
 
       {isOpponent && opponents.length === 0 && (
-        <div className="absolute inset-0 bg-[#050505]/90 border-2 border-white/10 flex items-center justify-center z-10">
-          <span className="text-[10px] font-black tracking-[0.3em] text-white/50 animate-pulse uppercase">Waiting for player...</span>
+        <div className="absolute inset-0 bg-[#050505]/95 border-2 border-white/10 flex items-center justify-center z-10 backdrop-blur-sm">
+          <span className="text-[10px] font-black tracking-[0.4em] text-white/40 animate-pulse uppercase">Awaiting Challenger</span>
         </div>
       )}
     </div>
   );
 });
 
-const ChessGame = ({ roomId, playerName, onLeave }) => {
+const ChessGame = ({ roomId, playerName, onLeave, isPvE = false, difficulty = 2 }) => {
   const [game, setGame] = useState(new Chess());
   const [selectedSquare, setSelectedSquare] = useState(null);
   const [validMoves, setValidMoves] = useState([]);
@@ -77,6 +99,8 @@ const ChessGame = ({ roomId, playerName, onLeave }) => {
   const [showChat, setShowChat] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showGameOverModal, setShowGameOverModal] = useState(false);
+  const [timers, setTimers] = useState({ w: 0, b: 0 });
+  const [gameStarted, setGameStarted] = useState(false);
 
   const copyLink = () => {
     navigator.clipboard.writeText(window.location.href);
@@ -84,8 +108,8 @@ const ChessGame = ({ roomId, playerName, onLeave }) => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Calculate captured pieces (Unchanged Logic)
-  const capturedPieces = useMemo(() => {
+  // Calculate captured pieces and relative score
+  const scoreData = useMemo(() => {
     const board = game.board().flat().filter(p => p !== null);
     const initialCounts = {
       w: { p: 8, r: 2, n: 2, b: 2, q: 1, k: 1 },
@@ -96,17 +120,49 @@ const ChessGame = ({ roomId, playerName, onLeave }) => {
       initialCounts[p.color][p.type]--;
     });
 
-    const captured = { w: [], b: [] };
+    const pieceValues = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+    const lost = { w: [], b: [] };
+    const lostValue = { w: 0, b: 0 };
+
     ['w', 'b'].forEach(color => {
-      Object.entries(initialCounts[color]).forEach(([type, count]) => {
+      // Sort pieces by value to show them in a nice order (e.g. Pawns first, then Knights, etc.)
+      const order = ['p', 'n', 'b', 'r', 'q'];
+      order.forEach(type => {
+        const count = initialCounts[color][type];
         for (let i = 0; i < count; i++) {
-          captured[color].push(type);
+          lost[color].push(type);
+          lostValue[color] += pieceValues[type];
         }
       });
     });
 
-    return captured;
+    return {
+      capturedBy: {
+        w: lost.b, // White captured Black's lost pieces
+        b: lost.w  // Black captured White's lost pieces
+      },
+      score: {
+        w: Math.max(0, lostValue.b - lostValue.w),
+        b: Math.max(0, lostValue.w - lostValue.b)
+      }
+    };
   }, [game]);
+
+  const makeCpuMove = useCallback(() => {
+    if (!isPvE || game.isGameOver() || game.turn() === playerColor) return;
+
+    // Call the async AI (Web Worker)
+    getBestMoveAsync(game.fen(), difficulty).then((bestMove) => {
+      if (bestMove) {
+        const result = game.move(bestMove);
+        if (result) {
+          setGame(new Chess(game.fen()));
+          setLastMove(result);
+          if (!gameStarted) setGameStarted(true);
+        }
+      }
+    });
+  }, [game, isPvE, playerColor, difficulty, gameStarted]);
 
   const updateGame = useCallback((move) => {
     try {
@@ -114,6 +170,7 @@ const ChessGame = ({ roomId, playerName, onLeave }) => {
       if (result) {
         setGame(new Chess(game.fen()));
         setLastMove(result);
+        if (!gameStarted) setGameStarted(true);
         return true;
       }
     } catch (e) {
@@ -123,6 +180,12 @@ const ChessGame = ({ roomId, playerName, onLeave }) => {
   }, [game]);
 
   useEffect(() => {
+    if (isPvE) {
+      setPlayerColor('w'); // In PvE, user is White by default
+      setStatus('READY');
+      return;
+    }
+
     socket.emit('joinRoom', { roomId, playerName });
 
     socket.on('error', (msg) => {
@@ -169,7 +232,27 @@ const ChessGame = ({ roomId, playerName, onLeave }) => {
       socket.off('resetGame');
       socket.off('chatMessage');
     };
-  }, [roomId, playerName, updateGame, onLeave]);
+  }, [roomId, playerName, updateGame, onLeave, isPvE]);
+
+  useEffect(() => {
+    if (isPvE && playerColor && game.turn() !== playerColor) {
+      makeCpuMove();
+    }
+  }, [game, isPvE, playerColor, makeCpuMove]);
+
+  useEffect(() => {
+    if (!gameStarted || game.isGameOver()) return;
+
+    const interval = setInterval(() => {
+      const turn = game.turn();
+      setTimers(prev => ({
+        ...prev,
+        [turn]: prev[turn] + 50
+      }));
+    }, 50);
+
+    return () => clearInterval(interval);
+  }, [game, gameStarted]);
 
   useEffect(() => {
     if (game.isGameOver()) {
@@ -202,7 +285,9 @@ const ChessGame = ({ roomId, playerName, onLeave }) => {
       const move = { from: selectedSquare, to: square, promotion: 'q' };
       const success = updateGame(move);
       if (success) {
-        socket.emit('move', { roomId, move });
+        if (!isPvE) {
+          socket.emit('move', { roomId, move });
+        }
         setSelectedSquare(null);
         setValidMoves([]);
         return;
@@ -220,17 +305,21 @@ const ChessGame = ({ roomId, playerName, onLeave }) => {
   };
 
   const resetGame = () => {
-    socket.emit('resetGame', roomId);
+    if (!isPvE) {
+      socket.emit('resetGame', roomId);
+    }
     setGame(new Chess());
     setLastMove(null);
     setSelectedSquare(null);
     setValidMoves([]);
+    setTimers({ w: 0, b: 0 });
+    setGameStarted(false);
     setShowGameOverModal(false);
   };
 
   const sendMessage = (e) => {
     e.preventDefault();
-    if (!inputMessage.trim()) return;
+    if (!inputMessage.trim() || isPvE) return;
     socket.emit('chatMessage', { roomId, message: inputMessage, sender: playerColor === 'w' ? 'White' : 'Black' });
     setInputMessage('');
   };
@@ -258,8 +347,12 @@ const ChessGame = ({ roomId, playerName, onLeave }) => {
         {/* Stark Header Status Bar */}
         <div className="w-full max-w-[560px] flex items-stretch border-2 border-white/10 h-14">
           <div className="flex flex-col justify-center px-4 border-r-2 border-white/10 bg-white/5">
-            <span className="text-[9px] font-black text-white/50 uppercase tracking-widest leading-none">Room</span>
-            <span className="font-black text-lime-400 tracking-wider leading-tight">{roomId}</span>
+            <span className="text-[9px] font-black text-white/50 uppercase tracking-widest leading-none">
+              {isPvE ? 'Difficulty' : 'Room'}
+            </span>
+            <span className="font-black text-lime-400 tracking-wider leading-tight">
+              {isPvE ? difficulty : roomId}
+            </span>
           </div>
           <div className="flex-1 flex items-center justify-center px-4 bg-[#050505]">
             <span className="text-sm md:text-lg font-black tracking-widest uppercase text-white">
@@ -299,9 +392,11 @@ const ChessGame = ({ roomId, playerName, onLeave }) => {
             isOpponent={true}
             playerColor={playerColor}
             game={game}
-            capturedPieces={capturedPieces}
-            opponents={opponents}
-            name={opponents.length > 0 ? opponents[0].name : 'Waiting...'}
+            captured={scoreData.capturedBy[playerColor === 'w' ? 'b' : 'w']}
+            score={scoreData.score[playerColor === 'w' ? 'b' : 'w']}
+            opponents={isPvE ? [{ name: 'Computer' }] : opponents}
+            name={isPvE ? 'Computer' : (opponents.length > 0 ? opponents[0].name : 'Waiting...')}
+            time={timers[playerColor === 'w' ? 'b' : 'w']}
           />
         </div>
 
@@ -324,9 +419,11 @@ const ChessGame = ({ roomId, playerName, onLeave }) => {
             isOpponent={false}
             playerColor={playerColor}
             game={game}
-            capturedPieces={capturedPieces}
+            captured={scoreData.capturedBy[playerColor === 'w' ? 'w' : 'b']}
+            score={scoreData.score[playerColor === 'w' ? 'w' : 'b']}
             opponents={opponents}
             name={playerName || 'You'}
+            time={timers[playerColor === 'w' ? 'w' : 'b']}
           />
         </div>
 

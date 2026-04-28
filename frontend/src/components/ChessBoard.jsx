@@ -9,14 +9,20 @@ const getSquareName = (rowIdx, colIdx) => `${cols[colIdx]}${rows[rowIdx]}`;
 const Square = memo(({ squareName, rowIdx, colIdx, cell, isSelected, isValidMove, isLastMove, isKingInCheck, onSquareClick, isFlipped }) => {
   const isDark = (rowIdx + colIdx) % 2 === 1;
 
-  // Premium Wood Colors: Maple (Light) and Walnut (Dark)
-  const baseColor = isDark ? 'bg-[#70432A]' : 'bg-[#D9A566]';
+  // Premium Tournament Color Palette
+  const baseColor = isDark ? 'bg-[#739552]' : 'bg-[#EBECD0]';
+  const textColor = isDark ? 'text-[#EBECD0]' : 'text-[#739552]';
 
-  // Dynamic Highlight Classes (using after: so texture shows underneath)
+  // Dynamic Highlight Classes (Layered over the base color)
   let highlightClass = '';
-  if (isSelected) highlightClass = 'after:bg-lime-400/50';
-  else if (isKingInCheck) highlightClass = 'after:bg-red-500/60';
-  else if (isLastMove) highlightClass = isDark ? 'after:bg-white/20' : 'after:bg-black/15';
+  if (isSelected) {
+    highlightClass = 'after:bg-[#F6F669]/60'; // Bright, crisp yellow
+  } else if (isKingInCheck) {
+    // Beautiful radial glow for check instead of a flat red square
+    highlightClass = 'after:bg-[radial-gradient(circle,rgba(255,0,0,0.8)_0%,rgba(255,0,0,0)_70%)]';
+  } else if (isLastMove) {
+    highlightClass = 'after:bg-[#F6F669]/30'; // Softer yellow trail
+  }
 
   const showRank = isFlipped ? colIdx === 7 : colIdx === 0;
   const showFile = isFlipped ? rowIdx === 0 : rowIdx === 7;
@@ -24,44 +30,43 @@ const Square = memo(({ squareName, rowIdx, colIdx, cell, isSelected, isValidMove
   return (
     <div
       onClick={() => onSquareClick(squareName)}
-      className={`relative flex items-center justify-center cursor-pointer transition-all duration-150 ${baseColor} 
-        after:absolute after:inset-0 after:transition-colors after:duration-200 ${highlightClass}
+      className={`relative flex items-center justify-center cursor-pointer transition-colors duration-200 ${baseColor} 
+        after:absolute after:inset-0 after:transition-all after:duration-200 ${highlightClass}
       `}
-      style={{
-        // Subtle, repeating wood grain texture
-        backgroundImage: 'url("https://www.transparenttextures.com/patterns/wood-pattern.png")',
-        backgroundSize: '150px'
-      }}
     >
-      {/* Minimal Coordinates - Placed above the highlight overlay */}
+      {/* Refined Coordinates - Tighter font, perfectly placed */}
       {showRank && (
-        <span className={`absolute top-0.5 left-1 text-[8px] sm:text-[10px] font-black uppercase select-none z-10 ${isDark ? 'text-white/60' : 'text-black/40'
-          }`}>
+        <span className={`absolute top-1 left-1.5 text-[9px] sm:text-[11px] font-bold tracking-tight select-none z-10 ${textColor}`}>
           {rows[rowIdx]}
         </span>
       )}
       {showFile && (
-        <span className={`absolute bottom-0.5 right-1 text-[8px] sm:text-[10px] font-black uppercase select-none z-10 ${isDark ? 'text-white/60' : 'text-black/40'
-          }`}>
+        <span className={`absolute bottom-0.5 right-1.5 text-[9px] sm:text-[11px] font-bold tracking-tight select-none z-10 ${textColor}`}>
           {cols[colIdx]}
         </span>
       )}
 
-      {/* Valid Move Indicator - Black with 70% visibility */}
+      {/* Modern Valid Move Indicators */}
       {isValidMove && (
-        <div className={`absolute z-10 pointer-events-none ${cell
-            ? 'w-full h-full border-4 sm:border-[6px] border-black/70' // Dark outline on capture
-            : 'w-4 h-4 sm:w-5 sm:h-5 bg-black/70 rounded-full' // Dark floating dot
-          }`} />
+        <div className={`absolute z-10 pointer-events-none flex items-center justify-center w-full h-full`}>
+          {cell ? (
+            // Hollow ring for capturing a piece
+            <div className="w-[85%] h-[85%] border-[5px] sm:border-[6px] border-black/20 rounded-full" />
+          ) : (
+            // Clean, tactile dot for moving to an empty square
+            <div className="w-[22%] h-[22%] bg-black/20 rounded-full shadow-inner" />
+          )}
+        </div>
       )}
 
-      {/* Piece Animation */}
+      {/* Enhanced Piece Animation & Shadow */}
       {cell && (
         <motion.div
-          initial={false}
+          initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
-          transition={{ type: "spring", stiffness: 500, damping: 30 }}
-          className="w-[85%] h-[85%] z-20 flex items-center justify-center drop-shadow-[0_4px_4px_rgba(0,0,0,0.5)]"
+          transition={{ type: "spring", stiffness: 400, damping: 25 }}
+          // Subtle drop shadow gives the pieces a 3D "standing" feel
+          className="w-[88%] h-[88%] z-20 flex items-center justify-center drop-shadow-[0_3px_4px_rgba(0,0,0,0.4)]"
         >
           <Piece type={cell.type} color={cell.color} />
         </motion.div>
@@ -73,7 +78,6 @@ const Square = memo(({ squareName, rowIdx, colIdx, cell, isSelected, isValidMove
 const ChessBoard = memo(({ game, selectedSquare, onSquareClick, validMoves, lastMove, playerColor }) => {
   const board = game.board();
 
-  // Find king position if in check
   let kingInCheckPos = null;
   if (game.inCheck()) {
     const turn = game.turn();
@@ -92,11 +96,8 @@ const ChessBoard = memo(({ game, selectedSquare, onSquareClick, validMoves, last
   const colIndices = isFlipped ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
 
   return (
-    <div className="w-full h-full grid grid-cols-8 grid-rows-8 border-[8px] sm:border-[12px] border-[#2A1810] shadow-2xl relative bg-[#2A1810]">
-
-      {/* Optional: A subtle inner shadow to make the board feel recessed into the frame */}
-      <div className="absolute inset-0 pointer-events-none shadow-[inset_0_0_20px_rgba(0,0,0,0.5)] z-30" />
-
+    // Sleek container with a very subtle inner ring to frame the board perfectly
+    <div className="w-full h-full grid grid-cols-8 grid-rows-8 rounded-lg overflow-hidden shadow-[0_10px_30px_rgba(0,0,0,0.3)] ring-1 ring-black/10 relative bg-[#EBECD0]">
       {rowIndices.map((r) =>
         colIndices.map((c) => {
           const cell = board[r][c];

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import ChessGame from './components/ChessGame'
-import { Crown, Play, Users, Plus, Hash, User } from 'lucide-react'
+import { Crown, Play, Users, Plus, Hash, User, ChevronRight } from 'lucide-react'
 import { socket } from './socket'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -13,6 +13,9 @@ function App() {
   const [playerName, setPlayerName] = useState('')
   const [hasName, setHasName] = useState(false)
   const [creatingRoom, setCreatingRoom] = useState(false)
+  const [gameMode, setGameMode] = useState('PVP') // 'PVP' or 'PVE'
+  const [difficulty, setDifficulty] = useState(2)
+  const [selectingDifficulty, setSelectingDifficulty] = useState(false)
 
   useEffect(() => {
     const pathParts = window.location.pathname.split('/').filter(Boolean)
@@ -47,7 +50,15 @@ function App() {
 
     const newRoomId = Math.random().toString(36).substring(2, 8).toUpperCase()
     setRoomId(newRoomId)
+    setGameMode('PVP')
     window.history.pushState(null, '', `/${roomName}/${newRoomId}`)
+    setInGame(true)
+  }
+
+  const handleStartPVE = (level) => {
+    setDifficulty(level)
+    setGameMode('PVE')
+    setRoomId('CPU-' + level)
     setInGame(true)
   }
 
@@ -75,8 +86,12 @@ function App() {
       <ChessGame 
         roomId={roomId} 
         playerName={playerName}
+        isPvE={gameMode === 'PVE'}
+        difficulty={difficulty}
         onLeave={(errMsg) => {
           setInGame(false)
+          setSelectingDifficulty(false)
+          setGameMode('PVP')
           window.history.pushState(null, '', '/')
           if (errMsg) {
             setError(errMsg)
@@ -189,16 +204,57 @@ function App() {
               </motion.button>
             </div>
           </form>
+        ) : selectingDifficulty ? (
+          <div className="space-y-6">
+            <h3 className="text-white/50 font-bold text-xs uppercase tracking-[0.3em] text-center mb-4">Select Difficulty</h3>
+            <div className="grid grid-cols-1 gap-3">
+              {[
+                { label: 'Novice', level: 1, desc: 'Depth 1 - Quick Play' },
+                { label: 'Intermediate', level: 2, desc: 'Depth 2 - Balanced' },
+                { label: 'Advanced', level: 3, desc: 'Depth 3 - Strategic' },
+                { label: 'Grandmaster', level: 4, desc: 'Depth 4 - Intense' },
+              ].map((d) => (
+                <motion.button
+                  key={d.level}
+                  whileHover={{ x: 4, backgroundColor: 'rgba(255,255,255,0.05)' }}
+                  onClick={() => handleStartPVE(d.level)}
+                  className="w-full border-2 border-white/10 p-4 text-left group transition-all hover:border-lime-400"
+                >
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-white font-black uppercase tracking-widest">{d.label}</span>
+                    <ChevronRight size={16} className="text-white/20 group-hover:text-lime-400 transition-colors" />
+                  </div>
+                  <p className="text-[10px] text-white/40 font-bold uppercase tracking-wider">{d.desc}</p>
+                </motion.button>
+              ))}
+            </div>
+            <button
+              onClick={() => setSelectingDifficulty(false)}
+              className="w-full text-[10px] font-black text-white/30 uppercase tracking-[0.3em] hover:text-white transition-colors pt-4"
+            >
+              Back to Menu
+            </button>
+          </div>
         ) : (
-          <div className="space-y-8">
+          <div className="space-y-6">
             <motion.button
               whileHover={{ x: 4, y: -4, boxShadow: "-8px 8px 0 rgba(163,230,53,1)" }}
               whileTap={{ x: 0, y: 0, boxShadow: "0px 0px 0 rgba(163,230,53,1)" }}
+              onClick={() => setSelectingDifficulty(true)}
+              className="w-full bg-lime-400 text-black font-black py-5 px-6 border-2 border-lime-400 flex items-center justify-between transition-all group"
+            >
+              <span className="tracking-widest uppercase text-lg">Play vs CPU</span>
+              <Play size={24} className="fill-current" />
+            </motion.button>
+
+            <motion.button
+              whileHover={{ x: 4, y: -4, boxShadow: "-8px 8px 0 rgba(255,255,255,1)" }}
+              whileTap={{ x: 0, y: 0, boxShadow: "0px 0px 0 rgba(255,255,255,1)" }}
               onClick={() => setCreatingRoom(true)}
               className="w-full bg-white text-black font-black py-5 px-6 border-2 border-white flex items-center justify-between transition-all group"
             >
-              <span className="tracking-widest uppercase text-lg">Create Game</span>
-              <Plus size={24} className="group-hover:rotate-90 transition-transform duration-300" />
+              <span className="tracking-widest uppercase text-lg">Multiplayer</span>
+              <Users size={24} />
             </motion.button>
 
             <form onSubmit={handleJoinRoom} className="space-y-4 pt-4 border-t-2 border-white/10">
@@ -218,10 +274,10 @@ function App() {
                 disabled={roomId.length < 4}
                 whileHover={{ scale: roomId.length >= 4 ? 1.02 : 1 }}
                 whileTap={{ scale: roomId.length >= 4 ? 0.98 : 1 }}
-                className="w-full bg-lime-400 text-black font-black py-4 border-2 border-lime-400 transition-all disabled:opacity-20 disabled:border-white/10 disabled:bg-transparent disabled:text-white/50 flex items-center justify-center gap-3 uppercase tracking-widest"
+                className="w-full border-2 border-white/20 text-white font-black py-4 transition-all disabled:opacity-20 hover:border-white flex items-center justify-center gap-3 uppercase tracking-widest"
               >
                 <span>Join Match</span>
-                <Play size={18} className="fill-current" />
+                <ChevronRight size={18} />
               </motion.button>
             </form>
           </div>
