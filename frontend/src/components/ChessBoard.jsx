@@ -21,7 +21,7 @@ const Square = memo(({ squareName, rowIdx, colIdx, cell, isSelected, isValidMove
     // Beautiful radial glow for check instead of a flat red square
     highlightClass = 'after:bg-[radial-gradient(circle,rgba(255,0,0,0.8)_0%,rgba(255,0,0,0)_70%)]';
   } else if (isLastMove) {
-    highlightClass = 'after:bg-[#F6F669]/30'; // Softer yellow trail
+    highlightClass = 'after:bg-[#F6F669]/70'; // Darker yellow trail for better visibility
   }
 
   const showRank = isFlipped ? colIdx === 7 : colIdx === 0;

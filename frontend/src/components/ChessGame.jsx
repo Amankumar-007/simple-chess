@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, memo, useRef } from 'react';
 import { Chess } from 'chess.js';
 import { socket } from '../socket';
 import ChessBoard from './ChessBoard';
 import Piece from './Piece';
-import { Trophy, RotateCcw, MessageSquare, Send, Crown, ArrowLeft, ChevronRight, User, Skull, Link, Check, Eye, Cpu } from 'lucide-react';
+import { Trophy, RotateCcw, MessageSquare, Send, Crown, ArrowLeft, ChevronRight, User, Skull, Link, Check, Eye, Cpu, Undo2, ChevronLeft, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { getBestMoveAsync } from '../utils/ai';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -57,16 +57,24 @@ const PlayerCard = memo(({ color, isOpponent, playerColor, game, captured, score
           </div>
         </div>
 
-        {/* Captured Pieces Minimal Row */}
-        <div className="flex flex-wrap items-center gap-1 h-6">
+        {/* Captured Pieces Row — show actual piece color on contrasting bg */}
+        <div className="flex flex-wrap items-center gap-0.5 h-6">
           {captured.map((type, i) => {
-            const opponentColor = color === 'w' ? 'b' : 'w';
+            // White player captures black pieces → show black pieces on WHITE bg (so they're visible)
+            // Black player captures white pieces → show white pieces on BLACK bg (so they're visible)
+            const capturedPieceColor = color === 'w' ? 'b' : 'w';
+            const bgClass = color === 'w'
+              ? 'bg-white/90 border border-white/30'   // light bg → black pieces visible
+              : 'bg-black/80 border border-white/10';  // dark bg  → white pieces visible
             return (
-              <div key={i} className="w-5 h-5 flex items-center justify-center grayscale brightness-200 opacity-40 hover:opacity-100 transition-opacity">
-                <Piece 
-                  type={type} 
-                  color={opponentColor} 
-                  style={{ width: '100%', height: '100%' }}
+              <div
+                key={i}
+                className={`w-5 h-5 flex items-center justify-center ${bgClass} hover:scale-110 transition-transform`}
+              >
+                <Piece
+                  type={type}
+                  color={capturedPieceColor}
+                  style={{ width: '80%', height: '80%' }}
                 />
               </div>
             );
@@ -90,7 +98,6 @@ const ChessGame = ({ roomId, playerName, onLeave, isPvE = false, difficulty = 2 
   const [game, setGame] = useState(new Chess());
   const [selectedSquare, setSelectedSquare] = useState(null);
   const [validMoves, setValidMoves] = useState([]);
-  const [lastMove, setLastMove] = useState(null);
   const [playerColor, setPlayerColor] = useState(null);
   const [opponents, setOpponents] = useState([]);
   const [status, setStatus] = useState('WAITING...');
@@ -100,7 +107,15 @@ const ChessGame = ({ roomId, playerName, onLeave, isPvE = false, difficulty = 2 
   const [copied, setCopied] = useState(false);
   const [showGameOverModal, setShowGameOverModal] = useState(false);
   const [timers, setTimers] = useState({ w: 0, b: 0 });
-  const [gameStarted, setGameStarted] = useState(false);
+  const [viewIndex, setViewIndex] = useState(-1); // -1 means current live state
+
+  const gameRef = useRef(game);
+  gameRef.current = game;
+
+  // Guard to prevent multiple simultaneous CPU move triggers
+  const cpuThinkingRef = useRef(false);
+
+  const gameStarted = game.history().length > 0;
 
   const copyLink = () => {
     navigator.clipboard.writeText(window.location.href);
@@ -108,8 +123,9 @@ const ChessGame = ({ roomId, playerName, onLeave, isPvE = false, difficulty = 2 
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Calculate captured pieces and relative score
+  // Calculate captured pieces and relative score based on current game state
   const scoreData = useMemo(() => {
+    // We always calculate scores based on the FULL game history, not just the viewed move
     const board = game.board().flat().filter(p => p !== null);
     const initialCounts = {
       w: { p: 8, r: 2, n: 2, b: 2, q: 1, k: 1 },
@@ -150,34 +166,48 @@ const ChessGame = ({ roomId, playerName, onLeave, isPvE = false, difficulty = 2 
 
   const makeCpuMove = useCallback(() => {
     if (!isPvE || game.isGameOver() || game.turn() === playerColor) return;
+    // Prevent double-firing: if a CPU move is already in flight, bail out
+    if (cpuThinkingRef.current) return;
+    cpuThinkingRef.current = true;
 
-    // Call the async AI (Web Worker)
-    getBestMoveAsync(game.fen(), difficulty).then((bestMove) => {
+    const currentFen = game.fen();
+    getBestMoveAsync(currentFen, difficulty).then((bestMove) => {
+      cpuThinkingRef.current = false;
       if (bestMove) {
-        const result = game.move(bestMove);
-        if (result) {
-          setGame(new Chess(game.fen()));
-          setLastMove(result);
-          if (!gameStarted) setGameStarted(true);
-        }
+        setGame(currentGame => {
+          // Only apply move if the board hasn't changed (e.g. undo wasn't hit)
+          if (currentGame.fen() !== currentFen) return currentGame;
+          const nextGame = new Chess();
+          nextGame.loadPgn(currentGame.pgn());
+          const result = nextGame.move(bestMove);
+          if (result) {
+            setViewIndex(-1);
+            return nextGame;
+          }
+          return currentGame;
+        });
       }
+    }).catch(() => {
+      cpuThinkingRef.current = false;
     });
-  }, [game, isPvE, playerColor, difficulty, gameStarted]);
+  }, [isPvE, game, playerColor, difficulty]);
 
   const updateGame = useCallback((move) => {
     try {
-      const result = game.move(move);
+      const currentGame = gameRef.current;
+      const nextGame = new Chess();
+      nextGame.loadPgn(currentGame.pgn());
+      const result = nextGame.move(move);
       if (result) {
-        setGame(new Chess(game.fen()));
-        setLastMove(result);
-        if (!gameStarted) setGameStarted(true);
+        setGame(nextGame);
+        setViewIndex(-1);
         return true;
       }
     } catch (e) {
       return false;
     }
     return false;
-  }, [game]);
+  }, []);
 
   useEffect(() => {
     if (isPvE) {
@@ -214,9 +244,9 @@ const ChessGame = ({ roomId, playerName, onLeave, isPvE = false, difficulty = 2 
 
     socket.on('resetGame', () => {
       setGame(new Chess());
-      setLastMove(null);
       setSelectedSquare(null);
       setValidMoves([]);
+      setViewIndex(-1);
     });
 
     socket.on('chatMessage', (msg) => {
@@ -235,10 +265,11 @@ const ChessGame = ({ roomId, playerName, onLeave, isPvE = false, difficulty = 2 
   }, [roomId, playerName, updateGame, onLeave, isPvE]);
 
   useEffect(() => {
-    if (isPvE && playerColor && game.turn() !== playerColor) {
+    // Only fire CPU move when it's truly the CPU's turn in live view
+    if (isPvE && playerColor && game.turn() !== playerColor && viewIndex === -1 && !game.isGameOver()) {
       makeCpuMove();
     }
-  }, [game, isPvE, playerColor, makeCpuMove]);
+  }, [game, isPvE, playerColor, makeCpuMove, viewIndex]);
 
   useEffect(() => {
     if (!gameStarted || game.isGameOver()) return;
@@ -258,7 +289,6 @@ const ChessGame = ({ roomId, playerName, onLeave, isPvE = false, difficulty = 2 
     if (game.isGameOver()) {
       setShowGameOverModal(true);
       if (game.isCheckmate()) {
-        setStatus(`${game.turn() === 'w' ? 'BLACK' : 'WHITE'} WINS!`);
         confetti({
           particleCount: 100,
           spread: 80,
@@ -266,19 +296,13 @@ const ChessGame = ({ roomId, playerName, onLeave, isPvE = false, difficulty = 2 
           colors: ['#ffffff', '#a3e635', '#000000'],
           disableForReducedMotion: true
         });
-      } else if (game.isDraw()) {
-        setStatus('DRAW');
-      } else {
-        setStatus('GAME OVER');
       }
-    } else {
-      const turn = game.turn() === 'w' ? 'WHITE' : 'BLACK';
-      const isCheck = game.inCheck();
-      setStatus(isCheck ? `CHECK! (${turn})` : `${turn} TURN`);
     }
   }, [game]);
 
   const onSquareClick = (square) => {
+    // Only allow moves if we are at the live state
+    if (viewIndex !== -1 && viewIndex !== game.history().length) return;
     if (!playerColor || game.turn() !== playerColor) return;
 
     if (selectedSquare) {
@@ -309,13 +333,88 @@ const ChessGame = ({ roomId, playerName, onLeave, isPvE = false, difficulty = 2 
       socket.emit('resetGame', roomId);
     }
     setGame(new Chess());
-    setLastMove(null);
     setSelectedSquare(null);
     setValidMoves([]);
     setTimers({ w: 0, b: 0 });
-    setGameStarted(false);
+    setViewIndex(-1);
     setShowGameOverModal(false);
   };
+
+  const undoMove = () => {
+    const newGame = new Chess();
+    newGame.loadPgn(game.pgn());
+    const undoneMove = newGame.undo();
+    if (isPvE && undoneMove) {
+      newGame.undo();
+    }
+    setGame(newGame);
+    setViewIndex(-1);
+    if (!isPvE) socket.emit('undoMove', roomId);
+  };
+
+  const getDisplayGame = () => {
+    const history = game.history({ verbose: true });
+    // If viewIndex is live (-1) or out of bounds, return the live game
+    if (viewIndex === -1 || viewIndex > history.length) return game;
+    
+    const tempGame = new Chess();
+    for (let i = 0; i < viewIndex; i++) {
+      if (history[i]) {
+        tempGame.move(history[i]);
+      }
+    }
+    return tempGame;
+  };
+
+  const displayGame = useMemo(() => getDisplayGame(), [game, viewIndex]);
+  const history = game.history();
+
+  const lastDisplayedMove = useMemo(() => {
+    const hist = displayGame.history({ verbose: true });
+    return hist.length > 0 ? hist[hist.length - 1] : null;
+  }, [displayGame]);
+
+  const displayStatus = useMemo(() => {
+    if (!isPvE && opponents.length === 0) {
+      return status === 'ALONE' ? 'ALONE' : 'WAITING...';
+    }
+    if (!isPvE && status === 'WAITING...') {
+      return 'WAITING...';
+    }
+    
+    if (displayGame.isGameOver()) {
+      if (displayGame.isCheckmate()) {
+        return `${displayGame.turn() === 'w' ? 'BLACK' : 'WHITE'} WINS!`;
+      } else if (displayGame.isDraw()) {
+        return 'DRAW';
+      } else {
+        return 'GAME OVER';
+      }
+    }
+    
+    const turn = displayGame.turn() === 'w' ? 'WHITE' : 'BLACK';
+    const isCheck = displayGame.inCheck();
+    return isCheck ? `CHECK! (${turn})` : `${turn} TURN`;
+  }, [isPvE, opponents, status, displayGame]);
+
+  useEffect(() => {
+    if (isPvE) return;
+
+    const handleUndoMove = () => {
+      setGame(prevGame => {
+        const newGame = new Chess();
+        newGame.loadPgn(prevGame.pgn());
+        newGame.undo();
+        return newGame;
+      });
+      setViewIndex(-1);
+    };
+
+    socket.on('undoMove', handleUndoMove);
+    return () => {
+      socket.off('undoMove', handleUndoMove);
+    };
+  }, [isPvE]);
 
   const sendMessage = (e) => {
     e.preventDefault();
@@ -356,7 +455,7 @@ const ChessGame = ({ roomId, playerName, onLeave, isPvE = false, difficulty = 2 
           </div>
           <div className="flex-1 flex items-center justify-center px-4 bg-[#050505]">
             <span className="text-sm md:text-lg font-black tracking-widest uppercase text-white">
-              {status}
+              {displayStatus}
             </span>
           </div>
           <button
@@ -391,7 +490,7 @@ const ChessGame = ({ roomId, playerName, onLeave, isPvE = false, difficulty = 2 
             color={playerColor === 'w' ? 'b' : 'w'}
             isOpponent={true}
             playerColor={playerColor}
-            game={game}
+            game={displayGame}
             captured={scoreData.capturedBy[playerColor === 'w' ? 'b' : 'w']}
             score={scoreData.score[playerColor === 'w' ? 'b' : 'w']}
             opponents={isPvE ? [{ name: 'Computer' }] : opponents}
@@ -400,14 +499,14 @@ const ChessGame = ({ roomId, playerName, onLeave, isPvE = false, difficulty = 2 
           />
         </div>
 
-        {/* Board Container - Removed Blur, Added Sharp Shadow */}
+        {/* Board Container */}
         <div className="relative shadow-[8px_8px_0px_rgba(255,255,255,0.05)] w-full max-w-[560px] aspect-square">
           <ChessBoard
-            game={game}
+            game={displayGame}
             onSquareClick={onSquareClick}
             selectedSquare={selectedSquare}
             validMoves={validMoves}
-            lastMove={lastMove}
+            lastMove={lastDisplayedMove}
             playerColor={playerColor}
           />
         </div>
@@ -418,13 +517,64 @@ const ChessGame = ({ roomId, playerName, onLeave, isPvE = false, difficulty = 2 
             color={playerColor === 'w' ? 'w' : 'b'}
             isOpponent={false}
             playerColor={playerColor}
-            game={game}
+            game={displayGame}
             captured={scoreData.capturedBy[playerColor === 'w' ? 'w' : 'b']}
             score={scoreData.score[playerColor === 'w' ? 'w' : 'b']}
             opponents={opponents}
             name={playerName || 'You'}
             time={timers[playerColor === 'w' ? 'w' : 'b']}
           />
+        </div>
+
+        {/* Navigation Controls */}
+        <div className="flex items-center gap-2 bg-[#050505] border-2 border-white/10 p-2">
+          <button 
+            onClick={() => setViewIndex(0)}
+            disabled={history.length === 0 || viewIndex === 0}
+            className="p-3 hover:bg-white/5 transition-colors text-white/50 hover:text-white disabled:opacity-20 disabled:hover:bg-transparent"
+            title="First Move"
+          >
+            <ChevronsLeft size={20} />
+          </button>
+          <button 
+            onClick={() => setViewIndex(prev => {
+              if (prev === -1) return history.length - 1;
+              return Math.max(0, prev - 1);
+            })}
+            disabled={history.length === 0 || viewIndex === 0}
+            className="p-3 hover:bg-white/5 transition-colors text-white/50 hover:text-white disabled:opacity-20 disabled:hover:bg-transparent"
+            title="Previous Move"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <button 
+            onClick={undoMove}
+            disabled={history.length === 0 || (viewIndex !== -1 && viewIndex !== history.length)}
+            className="px-6 py-2 border-2 border-white/10 hover:border-white/40 hover:bg-white/5 transition-all flex items-center gap-2 text-xs font-black uppercase tracking-widest disabled:opacity-20"
+          >
+            <Undo2 size={16} />
+            <span>Undo</span>
+          </button>
+          <button 
+            onClick={() => setViewIndex(prev => {
+              if (prev === -1 || prev === history.length) return -1;
+              if (prev === history.length - 1) return -1;
+              return prev + 1;
+            })}
+            disabled={history.length === 0 || viewIndex === -1 || viewIndex === history.length}
+            className="p-3 hover:bg-white/5 transition-colors text-white/50 hover:text-white disabled:opacity-20 disabled:hover:bg-transparent"
+            title="Next Move"
+          >
+            <ChevronRight size={20} />
+          </button>
+          <button 
+            onClick={() => setViewIndex(-1)}
+            disabled={history.length === 0 || viewIndex === -1}
+            className="p-3 hover:bg-white/5 transition-colors text-white/50 hover:text-white disabled:opacity-20 disabled:hover:bg-transparent"
+            title="Last Move"
+          >
+            <ChevronsRight size={20} />
+          </button>
         </div>
 
         {/* Brutalist Game Over Modal */}
@@ -483,23 +633,60 @@ const ChessGame = ({ roomId, playerName, onLeave, isPvE = false, difficulty = 2 
 
       {/* Right Sidebar - Chat & Stats (Desktop) */}
       <div className="hidden lg:flex w-[380px] border-l-2 border-white/10 bg-[#050505] flex-col">
-        <div className="p-6 border-b-2 border-white/10 flex items-center gap-3 bg-white/5">
-          <Skull size={24} className="text-white" />
-          <h2 className="font-black text-xl tracking-widest uppercase">Match Data</h2>
+        <div className="p-6 border-b-2 border-white/10 flex items-center justify-between bg-white/5">
+          <div className="flex items-center gap-3">
+            <Skull size={24} className="text-white" />
+            <h2 className="font-black text-xl tracking-widest uppercase">Match Data</h2>
+          </div>
+          {viewIndex !== -1 && (
+            <span className="text-[10px] font-black bg-lime-400 text-black px-2 py-1 uppercase tracking-widest">
+              Reviewing
+            </span>
+          )}
         </div>
 
-        <div className="flex-1 overflow-hidden flex flex-col p-6 space-y-8">
+        <div className="flex-1 overflow-hidden flex flex-col p-6 space-y-6">
           {/* Brutalist Stats Grid */}
           <div className="grid grid-cols-2 gap-4">
             <div className="p-4 border-2 border-white/10 space-y-1">
               <span className="text-[10px] font-black text-white/50 uppercase tracking-widest">Moves</span>
-              <p className="text-3xl font-black text-white">{game.history().length}</p>
+              <p className="text-3xl font-black text-white">{history.length}</p>
             </div>
             <div className="p-4 border-2 border-white/10 space-y-1">
               <span className="text-[10px] font-black text-white/50 uppercase tracking-widest">Status</span>
-              <p className="text-3xl font-black text-lime-400 tracking-tighter">
-                {game.inCheck() ? 'CHECK' : 'CLEAR'}
+              <p className="text-3xl font-black text-lime-400 tracking-tighter truncate">
+                {displayGame.inCheck() ? 'CHECK' : 'CLEAR'}
               </p>
+            </div>
+          </div>
+
+          {/* Move List / History */}
+          <div className="flex-1 flex flex-col min-h-0 border-2 border-white/10 overflow-hidden">
+            <div className="p-3 border-b-2 border-white/10 bg-white/5">
+              <span className="text-[10px] font-black text-white/50 uppercase tracking-widest">Move History</span>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 scrollbar-hide">
+              <div className="grid grid-cols-2 gap-2">
+                {Array.from({ length: Math.ceil(history.length / 2) }).map((_, i) => (
+                  <React.Fragment key={i}>
+                    <div 
+                      onClick={() => setViewIndex(i * 2 + 1)}
+                      className={`p-2 text-xs font-bold cursor-pointer transition-colors ${(viewIndex === i * 2 + 1 || (viewIndex === -1 && i * 2 + 1 === history.length)) ? 'bg-lime-400 text-black' : 'hover:bg-white/5 text-white/60'}`}
+                    >
+                      <span className="text-white/30 mr-2">{i + 1}.</span>
+                      {history[i * 2]}
+                    </div>
+                    {history[i * 2 + 1] && (
+                      <div 
+                        onClick={() => setViewIndex(i * 2 + 2)}
+                        className={`p-2 text-xs font-bold cursor-pointer transition-colors ${(viewIndex === i * 2 + 2 || (viewIndex === -1 && i * 2 + 2 === history.length)) ? 'bg-lime-400 text-black' : 'hover:bg-white/5 text-white/60'}`}
+                      >
+                        {history[i * 2 + 1]}
+                      </div>
+                    )}
+                  </React.Fragment>
+                ))}
+              </div>
             </div>
           </div>
 

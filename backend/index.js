@@ -89,6 +89,10 @@ io.on('connection', (socket) => {
     socket.to(roomId).emit('resetGame');
   });
 
+  socket.on('undoMove', (roomId) => {
+    socket.to(roomId).emit('undoMove');
+  });
+
   socket.on('chatMessage', ({ roomId, message, sender }) => {
     io.to(roomId).emit('chatMessage', { message, sender });
   });
